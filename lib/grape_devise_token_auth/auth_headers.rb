@@ -34,12 +34,20 @@ module GrapeDeviseTokenAuth
     def auth_headers_from_resource
       auth_headers = {}
       resource.with_lock do
-        if !GrapeDeviseTokenAuth.change_headers_on_each_request
+        if batch_request?
+          # extend expiration of batch buffer to account for the duration of
+          # this request
           auth_headers = resource.extend_batch_buffer(token, client_id)
-        elsif batch_request?
-          resource.extend_batch_buffer(token, client_id)
-          # don't set any headers in a batch request
+
+          # Do not return token for batch requests to avoid invalidated
+          # tokens returned to the client in case of race conditions.
+          # Use a blank string for the header to still be present and
+          # being passed in a XHR response in case of
+          # 304 Not Modified responses.
+          auth_headers[DeviseTokenAuth.headers_names[:"access-token"]] = ' '
+          auth_headers[DeviseTokenAuth.headers_names[:"expiry"]] = ' '
         else
+          # update Authorization response header with new token
           auth_headers = resource.create_new_auth_token(client_id)
         end
       end
